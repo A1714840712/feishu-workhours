@@ -80,7 +80,7 @@ function runDriver(argv, { timeoutMs = 900000 } = {}) {
  * @param options.days - 仅 fill：跳过读取，直接用这个出勤天数。
  * @returns `{ ok, summary, detail? }`。
  */
-async function runAction(action, { workspace, commit = false, submit = false, days } = {}) {
+async function runAction(action, { workspace, commit = false, submit = false, days, mode } = {}) {
   const argv = [action, '--workspace', workspace];
   if (action === 'probe') {
     // 插件里没有终端可等，直接抓当前已登录的页面
@@ -90,6 +90,7 @@ async function runAction(action, { workspace, commit = false, submit = false, da
     if (commit === true) argv.push('--commit');
     if (submit === true) argv.push('--submit');
     if (typeof days === 'number') argv.push('--days', String(days));
+    if (mode === 'batch' || mode === 'single') argv.push('--mode', mode);
   }
 
   const outcome = await runDriver(argv);
@@ -254,6 +255,9 @@ export function apply(ctx) {
       + '\n- probe：打开两个页面并把 DOM 结构、截图落盘。首次使用、或页面改版后必须做一次，用于确定选择器。'
       + '\n- read：只读取出勤天数并算出工时，不碰 Meego。'
       + '\n- fill：读取并写入。默认只预览（不写），必须显式传 commit: true 才真正写入。'
+      + '\nfill 有两种登记方式（参数 mode）：single=单项登记，弹窗里填一格；batch=批量登记，'
+      + '把 出勤天数×8 按工作日逐格分摊到整月（余数落在最后一个工作日），每格填完都回读「合计」校验。'
+      + '\n两种方式都**只填不提交**，除非显式传 submit: true。'
       + '\n注意：浏览器使用独立配置目录保存登录态，插件不接触账号密码；首次需要人工登录一次。'
       + '\n首次登录必须在终端里做：`node lib/driver.mjs probe --workspace <工作区>` 会打开浏览器并等你在终端回车（'
       + '这里的 probe 不等终端，只抓当前已加载的页面，未登录时只会抓到登录页）。'
@@ -276,6 +280,11 @@ export function apply(ctx) {
       days: {
         type: 'number',
         description: '仅 fill 用。跳过读取，直接用这个出勤天数换算（便于先验证写入链路）。',
+      },
+      mode: {
+        type: 'string',
+        enum: ['single', 'batch'],
+        description: '仅 fill 用。single=单项登记（一次一格）；batch=批量登记，把 出勤天数×8 按工作日逐格填。默认用配置里的 meego.mode。',
       },
     },
     output: {
@@ -301,6 +310,7 @@ export function apply(ctx) {
         commit: args.commit === true,
         submit: args.submit === true,
         days: typeof args.days === 'number' ? args.days : undefined,
+        mode: args.mode === 'batch' ? 'batch' : (args.mode === 'single' ? 'single' : undefined),
       });
       return {
         ok: result.ok,
