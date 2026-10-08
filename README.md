@@ -83,6 +83,19 @@ cd E:\DSH-chajain\feishu-workhours
 node lib\driver.mjs probe --workspace E:\DSH-chajain
 ```
 
+> **更省的用法：自己先起一个带调试端口的 Chrome，再让 driver 复用。**
+> 这样浏览器始终是「暖」的（你已经登录、页面已经加载过），比每次由 driver 冷启动稳定得多：
+>
+> ```powershell
+> & "$env:ProgramFiles\Google\Chrome\Application\chrome.exe" `
+>   --remote-debugging-port=9333 `
+>   --user-data-dir=E:\DSH-chajain\.dsh-workhours\chrome-profile
+> ```
+>
+> 之后 driver 会打印 `[browser] … (复用已有)`，并且跑完不关这个窗口。
+> 冷启动的 Chrome 往往停在「恢复上次会话」的气泡上、插件页也还在转圈，
+> 容易出现「点了没反应」这类假故障。
+
 - 会弹出一个 Chrome 窗口，并打开 iTalent 月报页和 Meego 工时页。
 - 在窗口里**完成登录**（飞书 SSO / iTalent 登录），确认两个页面都能正常看到内容。
 - 回到终端**按回车**，脚本会把结构抓到：
@@ -464,6 +477,15 @@ node E:\DSH-chajain\tools\verify-sidebar.mjs <带 token 的 URL> <截图目录>
   插件本身不接触、不存储账号密码。
 - 如果 `browser.profileDir` 目录下的 Chrome 已经在运行（但没有开调试端口），
   再次启动只会激活旧窗口而不会开端口，driver 会明确报错并提示怎么处理。
+- **浏览器状态坏掉时怎么重置。** 反复强杀 Chrome 会留下「恢复上次会话」的气泡和一堆已附加的调试会话，
+  表现是 driver 起了 Chrome 却长时间没反应。按顺序做：
+  1. 结束所有用这个 profile 的 chrome 进程（`Get-CimInstance Win32_Process -Filter "Name='chrome.exe'"`
+     里挑命令行含该 profile 的）；
+  2. 按 §3.1 的第二种方式**自己**起 Chrome（带 `--remote-debugging-port=9333`），
+     手动关掉「恢复页面」气泡、确认两页都已登录；
+  3. 再跑 `fill`，确认日志是 `(复用已有)` 而不是 `(新启动)`。
+- **批量那条路建议先试水再跑整月**：`--mode batch --days 2 --commit` 只填两格，
+  核对 `batch.cells` 里的日期和 `cellAfter` 都对了，再不加 `--days` 跑整月。
 
 ---
 
