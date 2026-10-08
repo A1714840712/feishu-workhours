@@ -1,0 +1,42 @@
+{
+  "_comment": "复制成 config.json 后按需修改。选择器留 null 时启用内置的「按可见文字就近定位」启发式。frameUrlIncludes 只调整 frame 尝试顺序（命中的先试），写错也不会直接失败。",
+
+  "attendance": {
+    "url": "https://www.italent.cn/portal/convoy/attendance?metaObjName=Attendance.Monthly&listViewName=Attendance.SingleObjectListView.MyMonthlyTableList&_userSpecialType=1&_pageType=cloud",
+    "label": "出勤天数",
+    "labelMatch": "includes",
+    "valueSelector": null,
+    "rowMatch": "current-month",
+    "decimals": 1,
+    "frameUrlIncludes": "italent.cn",
+    "frameWaitMs": 15000
+  },
+
+  "meego": {
+    "url": "https://project.feishu.cn/REPLACE-ME/meegoPlg/MII_REPLACE-ME_board_fikkli?lang=zh-CN",
+    "label": "工时",
+    "inputSelector": null,
+    "submitSelector": null,
+    "submit": false,
+    "settleMs": 2500,
+    "frameUrlIncludes": "projectplg.feishupkg.com",
+    "frameWaitMs": 15000
+  },
+
+  "rule": {
+    "hoursPerDay": 8
+  },
+
+  "browser": {
+    "port": 9333,
+    "chromePath": null,
+    "headless": false,
+    "profileDir": null,
+    "keepOpen": false
+  },
+
+  "probe": {
+    "outDir": null,
+    "waitForEnter": true
+  }
+}

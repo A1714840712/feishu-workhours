@@ -1,0 +1,4 @@
+{
+  "title": "Feishu Project work-hour autofill",
+  "description": "Reads attendance days from the Beisen iTalent monthly report, converts them to work hours (days x 8), and fills the Feishu Project (Meego) work-hour page. Reuses a dedicated browser profile for the login session; never touches credentials."
+}

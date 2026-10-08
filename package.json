@@ -1,0 +1,46 @@
+{
+  "name": "@local/feishu-workhours",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "读取北森 iTalent 我的月报出勤天数，按 ×8 换算工时后自动填报飞书项目 (Meego) 工时页",
+  "icon": "./icon.svg",
+  "meta": {
+    "title": "飞书项目工时自动填报",
+    "description": "读 iTalent 出勤天数 × 8 写入 Meego 工时"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-tools": "~0.2.0-rc.2"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "lib",
+    "test",
+    "config.default.json",
+    "cordis.patch.yml",
+    "icon.svg",
+    "locale",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-api-remotes"
+      ]
+    }
+  }
+}
