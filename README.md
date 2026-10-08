@@ -222,7 +222,10 @@ $dsh = 'F:\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd'
 & $dsh --profile whcheck --port 19388 --no-open
 
 # 另开一个终端：验证左栏条目、面板内容、主题 token、控制台报错，并截图
-node E:\DSH-chajain\tools\verify-sidebar.mjs 'http://127.0.0.1:19388/?token=<上一步打印的 token>' E:\DSH-chajain\.dsh-workhours\shots
+node E:\DSH-chajain\tools\verify-sidebar.mjs 'http://127.0.0.1:19388/?token=<上一步打印的 token>' --shots=E:\DSH-chajain\.dsh-workhours\shots
+
+# 再进一步：真的点一下「读取出勤天数」，看命令有没有打回宿主
+node E:\DSH-chajain\tools\verify-sidebar.mjs 'http://127.0.0.1:19388/?token=<上一步打印的 token>' --click=读取出勤天数
 
 # 收尾
 Remove-Item "$env:USERPROFILE\.dsh\profiles\whcheck" -Recurse
@@ -234,12 +237,48 @@ Remove-Item "$env:USERPROFILE\.dsh\profiles\whcheck" -Recurse
 |---|---|
 | `left-rail panel entries` 里出现 `工时填报` | 左栏条目已注册 |
 | `aria-current: "工时填报"` | 点击后主面板被选中 |
-| `panel actions` 是那 4 个按钮 | 面板渲染完整 |
+| `panel actions` 含那 4 个按钮 | 面板渲染完整 |
 | `light` / `dark` 两组颜色都不是 `rgba(0, 0, 0, 0)` | 主题 token 解析成功，没有写死颜色 |
+| `panel actions with a Session` 是 4 个按钮 | 面板认得当前会话 |
+| `--click` 打出 driver 自己的业务报错 | 按钮 → 命令 → 宿主 → driver 全链路通了 |
 | `SIDEBAR VERIFY: OK` 且 `console errors/warnings: 0` | 没有 slot 崩溃 |
+
+**实测结果**（`--click=读取出勤天数`，未登录的干净 profile）：
+
+```
+command outcome: ERROR — 执行失败
+command text: 没能读到「出勤天数」。页面被重定向到了登录页 —— 浏览器里的登录态已失效。
+              请先运行 probe 重新登录一次。
+```
+
+这条 ERROR 是**预期**的：它证明命令真的打到了宿主、真的启动了 driver、真的开了 Chrome 去访问 iTalent，
+只是没登录而已。要区分的是**接线错误**（`without inject`、`没有可用的命令通道`、`宿主里没有 /workhours`），
+那些才是 bug。
 
 **这套验证证明的是宿主侧的组合与渲染，不是「你的应用里已经出现」** ——
 正在运行的 desktop profile 仍需要重启一次（见 §4）。
+
+### 4.4 客户端插件的一个坑：`remote.commands` 必须按需注入
+
+浏览器的命令通道**不能**直接 `ctx.get('remote').commands` 访问，会抛：
+
+```
+cannot get property "remote.commands" without inject
+```
+
+要么像官方插件那样把它写进静态 `inject`，要么用 `ctx.inject`。本插件用的是后者：
+
+```js
+// 静态 inject 只放 slots/locale —— 静态 inject 一旦缺失，apply 根本不跑，左栏条目会跟着消失。
+let commands;
+ctx.inject(['remote', 'remote.commands'], (remoteCtx) => {
+  commands = remoteCtx.remote.commands;
+  return () => { commands = undefined; };
+});
+```
+
+这样通道缺席时只是退化成一条可读提示，**条目和面板照常存在**。
+（对照：`ctx.get('uiSession')` 这类服务名不带点，`ctx.get` 会安全地返回 `undefined`，不需要 inject。）
 
 ---
 
@@ -315,7 +354,7 @@ copy config.default.json E:\DSH-chajain\.dsh-workhours\config.json
 node test\run-tests.mjs
 ```
 
-覆盖（**81 项，全部通过**）：
+覆盖（**87 项，全部通过**）：
 
 - 浏览器启动 / CDP / 跨 frame 提取 / 截图 / 结构 JSON 与 HTML 落盘
 - 精确匹配优先（「出勤天数」不被「应出勤天数」抢走）、当前月份行选取、小数天数、`×8` 换算
@@ -331,7 +370,9 @@ node test\run-tests.mjs
 - **客户端 bundle 契约**（`[7]` 段）：把 `window.__ModuleLoader__` 与 `react` 顶替掉后跑 `client.js`，
   断言它注册了 `sidebar.panellist`（id `feishu-workhours`）与 key 相同的 `main` 主面板、
   zh/en 字典键集一致、图标与面板可渲染、**点按钮真的发出 `/workhours read|fill|probe`**、
-  没有会话时给出「新建会话」、以及**写入按钮必须显式勾选确认**
+  没有会话时给出「新建会话」、以及**写入按钮必须显式勾选确认**；
+  另外断言 `ctx.inject` 按需注入 `['remote','remote.commands']`、通道缺席 / 就绪 / 释放三种情况下
+  `executeLine` 的行为（见 §4.4）
 
 面板在**真实宿主里**的渲染由另一个脚本验证（见 §4.3）：
 

@@ -460,6 +460,8 @@ console.log('\n[7] 客户端 bundle：左栏 sidebar.panellist / main 面板 / �
   const dictionaries = new Map();
   const registrations = [];
   const applied = [];
+  const injectDeps = [];
+  const injectCallbacks = [];
   const fakeCtx = {
     effect: (fn, label) => { applied.push(label); return fn(); },
     locale: {
@@ -471,8 +473,13 @@ console.log('\n[7] 客户端 bundle：左栏 sidebar.panellist / main 面板 / �
       register: (options, component) => ({ options, component }),
     },
     get: () => undefined,
+    inject: (deps, callback) => { injectDeps.push(deps); injectCallbacks.push(callback); },
   };
   exports_.apply(fakeCtx);
+
+  // `remote.commands` 必须按需注入才允许访问（静态 inject 里放它会连条目一起消失）。
+  check('按需注入 remote / remote.commands',
+    JSON.stringify(injectDeps) === JSON.stringify([['remote', 'remote.commands']]), injectDeps);
 
   const dict = dictionaries.get('feishuWorkhours');
   const zhKeys = Object.keys(dict?.zh ?? {}).sort();
@@ -499,6 +506,39 @@ console.log('\n[7] 客户端 bundle：左栏 sidebar.panellist / main 面板 / �
     && typeof injected.getSessionSource === 'function'
     && typeof injected.startSession === 'function',
     Object.keys(injected));
+
+  // 真实的 executeLine：通道缺席时给人话，通道就绪后把命令行原样交给 remote.commands。
+  const noChannel = await injected.executeLine('/workhours read', 'session-1');
+  check('通道缺席时给出可读提示', noChannel.ok === false && noChannel.text.length > 0, noChannel);
+
+  const channelCalls = [];
+  const dispose = injectCallbacks[0]({
+    remote: {
+      commands: {
+        execute: (sessionId, line, attachments) => {
+          channelCalls.push({ sessionId, line, attachments });
+          return Promise.resolve({ ok: true, value: { result: { kind: 'success', text: `ran ${line}` } } });
+        },
+      },
+    },
+  });
+  const ran = await injected.executeLine('/workhours read', 'session-1');
+  check('executeLine 走 remote.commands.execute',
+    JSON.stringify(channelCalls) === JSON.stringify([
+      { sessionId: 'session-1', line: '/workhours read', attachments: [] },
+    ]), channelCalls);
+  check('executeLine 展开 success 结果', ran.ok === true && ran.text === 'ran /workhours read', ran);
+
+  const withoutSession = await injected.executeLine('/workhours read', undefined);
+  check('executeLine 无会话时不发命令',
+    withoutSession.ok === false && channelCalls.length === 1, withoutSession);
+
+  if (typeof dispose === 'function') {
+    dispose();
+    const afterDispose = await injected.executeLine('/workhours read', 'session-1');
+    check('通道释放后退化回提示',
+      afterDispose.ok === false && channelCalls.length === 1, afterDispose);
+  }
 
   const buttonsOf = (node) => {
     const out = [];

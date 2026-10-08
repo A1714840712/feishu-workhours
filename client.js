@@ -258,6 +258,19 @@ html[data-platform='darwin'] .fwh-head{padding-top:calc(28px + var(--dsh-frame-t
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'feishu-workhours: dictionaries');
         const t = ctx.locale.bind(NS);
 
+        /**
+         * 宿主命令通道。`remote.commands` 必须在 inject 里声明才允许访问
+         * （否则是 `cannot get property "remote.commands" without inject`），
+         * 但它**不能**放进本插件的静态 inject：静态 inject 一旦缺失，apply 就不会跑，
+         * 左栏条目会跟着一起消失。所以用 ctx.inject 在它就绪时填入；
+         * 真缺席时只退化成一条可读提示，条目和面板照常存在。
+         */
+        let commands;
+        ctx.inject(['remote', 'remote.commands'], (remoteCtx) => {
+          commands = remoteCtx.remote.commands;
+          return () => { commands = undefined; };
+        });
+
         /** uiSession 暴露的当前主会话绑定源（服务缺失时返回 undefined）。 */
         const getSessionSource = () => {
           const uiSession = ctx.get('uiSession');
@@ -279,13 +292,10 @@ html[data-platform='darwin'] .fwh-head{padding-top:calc(28px + var(--dsh-frame-t
          */
         const executeLine = async (line, sessionId) => {
           if (sessionId === undefined) return { ok: false, text: t('error.noSession') };
-          const remote = ctx.get('remote');
-          if (remote === undefined || remote.commands === undefined) {
-            return { ok: false, text: t('error.noRemote') };
-          }
+          if (commands === undefined) return { ok: false, text: t('error.noRemote') };
           let result;
           try {
-            result = await remote.commands.execute(sessionId, line, []);
+            result = await commands.execute(sessionId, line, []);
           } catch (error) {
             return { ok: false, text: `${t('error.transport')}：${(error && error.message) || error}` };
           }
