@@ -346,6 +346,11 @@ copy config.default.json E:\DSH-chajain\.dsh-workhours\config.json
 > 仍然会退回其余 frame，不会因此直接失败；`read` / `fill` 的结果里会带一行 `帧定位：…`
 > 或 `⚠ 没等到 URL 含该片段的 frame … 实际看到的帧：…`，照它改配置即可。
 
+> **占位符没换掉时会提前报错，不会打开浏览器。** `fill` / `probe` 直接返回
+> `配置里的 meego.url 还是占位符，没有填成你自己的地址。`，并在 `hint` 里写明该写到哪个文件。
+> 这样就不用对着 Chrome 的无效地址导航错误猜原因了。
+> `read` 只读 iTalent，不需要 `meego.url`，因此不受影响；`probe --only attendance` 同理。
+
 ---
 
 ## 7. 测试
@@ -356,7 +361,7 @@ copy config.default.json E:\DSH-chajain\.dsh-workhours\config.json
 node test\run-tests.mjs
 ```
 
-覆盖（**87 项，全部通过**）：
+覆盖（**93 项，全部通过**）：
 
 - 浏览器启动 / CDP / 跨 frame 提取 / 截图 / 结构 JSON 与 HTML 落盘
 - 精确匹配优先（「出勤天数」不被「应出勤天数」抢走）、当前月份行选取、小数天数、`×8` 换算
@@ -375,6 +380,9 @@ node test\run-tests.mjs
   没有会话时给出「新建会话」、以及**写入按钮必须显式勾选确认**；
   另外断言 `ctx.inject` 按需注入 `['remote','remote.commands']`、通道缺席 / 就绪 / 释放三种情况下
   `executeLine` 的行为（见 §4.4）
+- **占位符配置的提示**（`[8]` 段）：`meego.url` 还是 `REPLACE-ME` 时，`fill` 与
+  `probe --only meego` 在打开浏览器之前就返回 `stage=config` 的明确错误（错误与 `hint` 都断言过可读）；
+  `read` 与 `probe --only attendance` 不受影响（见 §6）
 
 面板在**真实宿主里**的渲染由另一个脚本验证（见 §4.3）：
 

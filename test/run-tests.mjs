@@ -604,6 +604,51 @@ console.log('\n[7] 客户端 bundle：左栏 sidebar.panellist / main 面板 / �
     findByLabel(noSessionButtons, '确认填报（写入 Meego）')?.props?.disabled === true);
 }
 
+/* ------------------------------------------- 8. 占位符配置：提前报错 */
+
+console.log('\n[8] 占位符配置：提前报错，而不是抛无效地址导航错误');
+{
+  // meego.url 保持出厂的 REPLACE-ME，attendance 仍指向夹具 ——
+  // 这样既能验证拦截，也能验证「只在真正需要 meego 时才拦」。
+  const placeholderFile = path.join(TMP, 'config.placeholder.json');
+  fs.writeFileSync(placeholderFile, JSON.stringify({
+    attendance: { url: pathToFileURL(attFile).href, label: '出勤天数', valueSelector: null, decimals: 1 },
+    meego: { url: 'https://project.feishu.cn/REPLACE-ME/meegoPlg/MII_REPLACE-ME?lang=zh-CN' },
+    rule: { hoursPerDay: 8 },
+    browser: { port: 9445, headless: true, profileDir: path.join(TMP, 'profile-ph'), keepOpen: false },
+    probe: { outDir: path.join(TMP, 'probe-ph'), waitForEnter: false },
+  }, null, 2), 'utf8');
+  const phBase = ['--config', placeholderFile, '--workspace', TMP];
+
+  // fill 需要 meego → 提前失败（stage=config 说明没进 withBrowser，没开浏览器）
+  {
+    const { result } = await runDriver(['fill', ...phBase]);
+    check('fill 在 meego 占位符时提前失败', result.ok === false && result.stage === 'config', result);
+    check('fill 的错误点明 meego.url 是占位符',
+      /meego\.url/.test(result.error || '') && /占位符/.test(result.error || ''), result.error);
+    check('fill 的 hint 给出该写到哪个文件',
+      (result.hint || '').includes(path.join(TMP, '.dsh-workhours', 'config.json')), result.hint);
+  }
+
+  {
+    const { result } = await runDriver(['probe', ...phBase, '--only', 'meego', '--no-wait']);
+    check('probe --only meego 在占位符时提前失败',
+      result.ok === false && result.stage === 'config', result);
+  }
+
+  // read 只读 iTalent，不需要 meego → 不能被误拦
+  {
+    const { result } = await runDriver(['read', ...phBase]);
+    check('read 不受 meego 占位符影响',
+      result.ok === true && typeof result.days === 'number', result);
+  }
+
+  {
+    const { result } = await runDriver(['probe', ...phBase, '--only', 'attendance', '--no-wait']);
+    check('probe --only attendance 不受 meego 占位符影响', result.ok === true, result);
+  }
+}
+
 console.log(`\n${failures === 0 ? 'ALL TESTS PASSED' : `${failures} CHECK(S) FAILED`}`);
 console.log(`artifacts: ${TMP}`);
 process.exit(failures === 0 ? 0 : 1);
