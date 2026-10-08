@@ -58,18 +58,48 @@ const attendanceHtml = `<!doctype html>
   </table>
 </body></html>`;
 
-const meegoHtml = `<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><title>工时填报</title></head>
+/**
+ * Meego 看板夹具。真实流程是：点【工时登记】→ 从下拉里点【单项登记】→ 在弹窗里填 #basic_actWorkHour。
+ * 这里用真实 DOM + 真实点击事件复刻它，驱动的 CDP 鼠标点击才能走通。
+ */
+function boardHtml({ title = '工时填报', extra = '' } = {}) {
+  return `<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>${title}</title>
+<style>.hide{display:none !important}</style></head>
 <body>
-  <div class="panel">
-    <h2>工时填报</h2>
-    <div class="field"><span class="lbl">项目</span><input type="text" id="proj" value="示例项目"></div>
-    <div class="field"><span class="lbl">出勤天数</span><input type="text" id="days" value=""></div>
-    <div class="field"><span class="lbl">工时</span><input type="number" id="hours" value=""></div>
-    <button id="submit">提交</button>
-    <div class="other"><span>备注</span><input type="text" id="note" value=""></div>
+  ${extra}
+  <div class="resource-top">
+    <div class="field"><span class="lbl">备注</span><input type="text" id="note" value=""></div>
+    <div class="ant-space"><button id="register" class="ant-btn ant-btn-primary" type="button">工时登记</button></div>
   </div>
+  <ul id="menu" class="ant-dropdown-menu hide">
+    <li class="ant-dropdown-menu-item" id="mode-single">单项登记</li>
+    <li class="ant-dropdown-menu-item" id="mode-batch">批量登记</li>
+  </ul>
+  <div id="modal" class="ant-modal hide" role="dialog">
+    <div class="ant-modal-body">
+      <div class="ant-form-item"><label for="basic_workDate">工作日期</label><input type="text" id="basic_workDate" placeholder="请选择日期" value=""></div>
+      <div class="ant-form-item"><label for="basic_actWorkHour">登记工时</label><input type="text" id="basic_actWorkHour" placeholder="请输入工时" value=""></div>
+      <div class="ant-form-item"><label for="basic_workDesc">工作描述</label><textarea id="basic_workDesc" placeholder="请输入"></textarea></div>
+    </div>
+    <div class="ant-modal-footer">
+      <button id="cancel" type="button">取 消</button>
+      <button id="submit" type="button">提交审批</button>
+    </div>
+  </div>
+  <script>
+    var menu = document.getElementById('menu');
+    var modal = document.getElementById('modal');
+    document.getElementById('register').addEventListener('click', function () { menu.classList.remove('hide'); });
+    document.getElementById('mode-single').addEventListener('click', function () { menu.classList.add('hide'); modal.classList.remove('hide'); });
+    document.getElementById('mode-batch').addEventListener('click', function () { menu.classList.add('hide'); });
+    document.getElementById('cancel').addEventListener('click', function () { modal.classList.add('hide'); });
+    document.getElementById('submit').addEventListener('click', function () { window.__submitted = true; modal.classList.add('hide'); });
+  </script>
 </body></html>`;
+}
+
+const meegoHtml = boardHtml({ title: '工时填报' });
 
 const attFile = path.join(TMP, 'attendance.html');
 const meegoFile = path.join(TMP, 'meego.html');
@@ -152,20 +182,24 @@ console.log('\n[3] fill 预览（默认不写）');
 
 /* ---------------------------------------------------------------- 4. fill 提交 */
 
-console.log('\n[4] fill --commit（真正写入本地夹具）');
+console.log('\n[4] fill --commit（真正写入本地夹具：点开弹窗并填值，不提交）');
 {
   const { result } = await runDriver(['fill', ...base, '--commit']);
   check('fill commit ok', result.ok === true, result);
   check('mode = commit', result.mode === 'commit', result);
-  check('定位方式 = label-scope', result.wrote?.how === 'label-scope', result.wrote);
-  check('写入后值 = 172', result.wrote?.after === '172', result.wrote);
-  check('确认写入生效', result.wrote?.wrote === true, result.wrote);
-  check('没写错到别的框', result.wrote?.path?.includes('hours') || result.wrote?.id === 'hours', result.wrote);
+  check('点了【工时登记】', result.steps?.[0]?.step === 'click-register-button' && result.steps[0].ok === true, result.steps);
+  check('点了【单项登记】', result.steps?.[1]?.step === 'click-register-mode' && result.steps[1].ok === true, result.steps);
+  check('找到了弹窗', result.modal?.found === true, result.modal);
+  check('填的值 = 172', result.filled?.hoursAfter === '172', result.filled);
+  check('确认写入生效', result.filled?.hoursFilled === true, result.filled);
+  check('填的是弹窗里的工时框', result.filled?.selector === '#basic_actWorkHour', result.filled);
+  check('默认不提交', result.submitted === false, result.submitted);
+  check('标签页留着给人手动提交', result.keptOpen === true, result.keptOpen);
 }
 
 /* ------------------------------------------------- 5. 跨站 iframe + 帧偏好 + 提交兜底 */
 
-console.log('\n[5] 跨站 iframe：只应写进偏好帧，且按文字点到提交');
+console.log('\n[5] 跨站 iframe：只应在偏好帧里点开弹窗填值，且按文字点到提交');
 
 const parentHtml = `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><title>工时（外层）</title></head>
@@ -175,15 +209,7 @@ const parentHtml = `<!doctype html>
   </div>
 </body></html>`;
 
-const pluginHtml = `<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><title>工时插件页</title></head>
-<body>
-  <div class="panel">
-    <h2>工时资源管理</h2>
-    <div class="field"><span class="lbl">工时</span><input type="number" id="hours" value=""></div>
-    <button id="submit">提交</button>
-  </div>
-</body></html>`;
+const pluginHtml = boardHtml({ title: '工时插件页' });
 
 const missHtml = `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><title>无目标页</title></head>
@@ -252,12 +278,13 @@ function startServer(routes) {
     const { result } = await runDriver(['fill', ...iframeBase, '--days', '20', '--commit']);
     check('跨站 iframe 写入成功', result.ok === true, result);
     check('等到了偏好帧', result.frameWait?.matched?.includes('127.0.0.2') === true, result.frameWait);
-    check('写进了 iframe 而不是外层诱饵', result.wrote?.frameUrl?.includes('127.0.0.2') === true, result.wrote);
-    check('目标元素是 iframe 里的 #hours', result.wrote?.path?.includes('hours') === true, result.wrote);
-    check('外层诱饵未被写', result.wrote?.path?.includes('decoy') !== true, result.wrote);
-    check('提交兜底按文字命中', result.wrote?.submitHow === 'text', result.wrote);
-    check('提交按钮文字 = 提交', result.wrote?.submitText === '提交', result.wrote);
-    check('submitted = true', result.wrote?.submitted === true, result.wrote);
+    check('在 iframe 里点开了弹窗', result.modal?.found === true && result.modal?.frameUrl?.includes('127.0.0.2') === true, result.modal);
+    check('填进了 iframe 而不是外层诱饵', result.filled?.frameUrl?.includes('127.0.0.2') === true, result.filled);
+    check('外层诱饵未被填', result.filled?.frameUrl?.includes('parent.html') !== true, result.filled);
+    check('填入值 = 160', result.filled?.hoursAfter === '160', result.filled);
+    check('点击步骤全部成功', (result.steps || []).length >= 2 && result.steps.every((s) => s.ok === true), result.steps);
+    check('submit: true 时点了【提交审批】', result.submitted === true, result.steps);
+    check('提交步骤成功', (result.steps || []).some((s) => s.step === 'click-submit' && s.ok === true), result.steps);
   }
 
   {
@@ -275,11 +302,11 @@ function startServer(routes) {
 
     const { result } = await runDriver(['fill', '--config', missConfig, '--workspace', TMP, '--days', '20', '--commit']);
     check('定位失败时 ok = false', result.ok === false, result);
-    check('失败时给出 interactables', Array.isArray(result.interactables) && result.interactables.length > 0, result.interactables);
-    const frame = (result.interactables || []).find((f) => (f.editables || []).length > 0);
-    check('interactables 列出可编辑元素', Boolean(frame), result.interactables);
-    check('interactables 带 cssPath', frame?.editables?.[0]?.path?.includes('note') === true, frame?.editables);
-    check('interactables 列出按钮', (frame?.buttons || []).some((b) => b.text === '提交'), frame?.buttons);
+    check('失败时给出步骤明细', Array.isArray(result.steps) && result.steps.length > 0, result.steps);
+    check('失败停在第 1 步（点工时登记）', result.steps?.[0]?.step === 'click-register-button', result.steps);
+    check('步骤里写明了原因', typeof result.steps?.[0]?.error === 'string' && result.steps[0].error.length > 0, result.steps);
+    check('没有弹窗被找到', result.modal === null, result.modal);
+    check('失败时没有误填任何东西', result.filled === null, result.filled);
   }
 
   srv.close();

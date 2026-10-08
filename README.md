@@ -307,10 +307,18 @@ ctx.inject(['remote', 'remote.commands'], (remoteCtx) => {
 node lib\driver.mjs probe --workspace E:\DSH-chajain            # 首次登录用这个（会等回车）
 node lib\driver.mjs read  --workspace E:\DSH-chajain
 node lib\driver.mjs fill  --workspace E:\DSH-chajain            # 预览
-node lib\driver.mjs fill  --workspace E:\DSH-chajain --commit   # 真正写入
-node lib\driver.mjs fill  --workspace E:\DSH-chajain --commit --submit  # 写完并点提交
-node lib\driver.mjs fill  --workspace E:\DSH-chajain --days 21.5 --commit  # 跳过读取，直接写
+node lib\driver.mjs fill  --workspace E:\DSH-chajain --commit   # 点开弹窗并填好工时（不提交）
+node lib\driver.mjs fill  --workspace E:\DSH-chajain --commit --submit  # 顺便点提交（默认不建议）
+node lib\driver.mjs fill  --workspace E:\DSH-chajain --days 21.5 --commit  # 跳过读取，直接填
+node lib\driver.mjs fill  --workspace E:\DSH-chajain --mode batch          # 批量：预览分摊方案
+node lib\driver.mjs fill  --workspace E:\DSH-chajain --mode batch --commit # 批量：按工作日逐格填（不提交）
+node lib\driver.mjs fill  --workspace E:\DSH-chajain --mode batch --days 2 --commit  # 只填 2 格，用来试水
 ```
+
+`--commit` 之后弹窗会留在页面上、标签页不关，你核对完自己点「提交审批」即可。
+
+> **建议先小步试水**：`--mode batch --days 2 --commit` 只填两格，确认格子和日期都对上，
+> 再跑整月（不加 `--days`，工时会按 `attendance` 读到的出勤天数 × 8 算）。
 
 ---
 
@@ -326,18 +334,34 @@ copy config.default.json E:\DSH-chajain\.dsh-workhours\config.json
 
 | 键 | 说明 |
 |---|---|
-| `attendance.url` | iTalent 月报地址 |
-| `attendance.label` | 目标列名，默认 `出勤天数`（**精确匹配优先**，不会被「应出勤天数」抢走） |
-| `attendance.valueSelector` | 写死选择器；`null` 时走启发式 |
-| `attendance.rowMatch` | `current-month`：优先选含当前月份的那一行 |
+| `attendance.url` | iTalent 月报地址。默认值已在真实页面上验证（缺 `viewName` / `app` / `shadow_context` / `#/indexPage` 会被弹回首页） |
+| `attendance.label` | 目标列名，默认 `本月实际出勤天数`（**精确匹配优先**，避免被「月报能量日应出勤天数」「能量日实际出勤天数」抢走） |
+| `attendance.valueSelector` | 写死选择器；`null` 时走「表头列 → 同列数据行」的 grid 启发式 |
+| `attendance.rowMatch` | `current-month`：优先选含当前月份的那一行，没有则回退到最新可得的那一行（结果里的 `matchedMonth` 会写明用的哪个月） |
+| `attendance.decimals` | 天数保留几位小数，默认 **4**（月报里的天数是 0.125 的整数倍，位太少会算错小时） |
 | `attendance.frameUrlIncludes` | 帧偏好：URL 含该片段的 frame **先试**，默认 `italent.cn` |
 | `attendance.frameWaitMs` | 等该帧出现的最长时间，默认 15000 |
+| `attendance.renderWaitMs` | 轮询等异步表格渲染的最长时间，默认 30000 |
 | `rule.hoursPerDay` | 每天工时，默认 8 |
-| `meego.label` / `inputSelector` | 工时输入框的定位方式 |
+| `meego.registerButtonText` | 看板上打开登记入口的按钮文字，默认 `工时登记` |
+| `meego.registerModeText` | 下拉里的登记方式，默认 `单项登记` |
+| `meego.batchModeText` | 批量那条路的下拉项文字，默认 `批量登记` |
+| `meego.mode` | 默认登记方式：`single`（单项，一次填一格）或 `batch`（批量，按天逐格填）；命令行 `--mode batch` 可覆盖 |
+| `meego.clickWaitMs` | 等按钮出现、并等加载遮罩（`ant-spin`）消失的最长时间，默认 25000 |
+| `meego.batch.workItemType` | 批量登记要选的工作项类型（如 `项目管理`）；`null` = 只报错提示你去配 |
+| `meego.batch.workItemInstance` | 批量登记要搜的工作项实例名（通常跟类型同名） |
+| `meego.batch.range` | 日期范围按钮文字，默认 `上个月`；命中不了就自己填 `YYYY-MM-01` / 月末 |
+| `meego.batch.workdaysOnly` | 只填周一~周五，默认 `true` |
+| `meego.batch.rowMatch` | 网格里要填的那一行（登记对象）；`null` = 用第一行 |
+| `meego.batch.selectWaitMs` | 等批量弹窗里两个下拉出现的最长时间，默认 25000 |
+| `meego.hoursInputSelector` | 弹窗里的工时输入框，默认 `#basic_actWorkHour`（`请输入工时` 那个） |
+| `meego.workDateSelector` | 弹窗里的工作日期框，默认 `#basic_workDate` |
+| `meego.workDate` | 可选：要填的工作日期（如 `2026-09-30`）。默认 `null` = 不动它，留给你自己选。日期框是 antd 受控组件，填值属尽力而为 |
+| `meego.modalWaitMs` | 等弹窗（在另一个 frame 里）出现的最长时间，默认 20000 |
+| `meego.submitButtonText` | 弹窗里的提交按钮文字，默认 `提交审批` |
+| `meego.submit` | 是否**默认**点提交，默认 `false`。建议保持 false：`--commit` 只把值填好，提交由你手动点 |
 | `meego.frameUrlIncludes` | 帧偏好，默认 `projectplg.feishupkg.com` —— Meego 的 `openapp` 自定义插件页跑在**跨域 iframe** 里，表单在这里面 |
 | `meego.frameWaitMs` | 等该帧出现的最长时间，默认 15000（插件页由宿主异步挂载，晚于外层 `readyState=complete`） |
-| `meego.submitSelector` | 提交按钮选择器；留 `null` 时按可见文字兜底找「提交 / 保存 / 确定 / 保存并提交 / 提交工时」 |
-| `meego.submit` | 是否默认点提交（**建议保持 false**，人工确认后再提交）。为 `true` 但找不到按钮时，结果里会明确写「没找到提交按钮，请人工提交」 |
 | `browser.port` | Chrome 调试端口，默认 9333 |
 | `browser.profileDir` | 登录态目录，默认 `<workspace>/.dsh-workhours/chrome-profile` |
 | `browser.keepOpen` | `true` 则跑完不关浏览器，方便观察 |
@@ -361,7 +385,7 @@ copy config.default.json E:\DSH-chajain\.dsh-workhours\config.json
 node test\run-tests.mjs
 ```
 
-覆盖（**93 项，全部通过**）：
+覆盖（**99 项，全部通过**）：
 
 - 浏览器启动 / CDP / 跨 frame 提取 / 截图 / 结构 JSON 与 HTML 落盘
 - 精确匹配优先（「出勤天数」不被「应出勤天数」抢走）、当前月份行选取、小数天数、`×8` 换算
@@ -394,14 +418,37 @@ node E:\DSH-chajain\tools\verify-sidebar.mjs <带 token 的 URL> <截图目录>
 
 ## 8. 已知限制（请务必读）
 
-- **选择器还没有在真实页面上验证过。** 两个页面都必须登录才能访问，助手拿不到真实 DOM。
-  另外，Meego 那页的业务代码**不在公开的 bundle 里**（`page-web/index.js`、`936.index.js`
-  只是 `runtime-client` 通用外壳，没有任何中文业务文案），所以也无法靠静态分析反推选择器。
-  目前定位依赖「按可见文字就近定位」的启发式 —— 失败时会自我诊断并给出候选 `cssPath`（见 §3.2）。
-- **只写一个总数。** 目标是「总工时 = 出勤天数 × 8」写进单个输入框。
-  如果真实页面是按天/按人分行的表格，需要先确定该写哪一行，再补 `meego.inputSelector`（或加扩展逻辑）。
-- **有些格子要先点一下才会出现输入框。** 当前实现只在已有 `<input>`/`contenteditable` 里写；
-  若真实页面是「点单元格进入编辑态」，第一次 `fill` 会失败并给出诊断，据此再决定是否加点击步骤。
+- **选择器已经在真实页面上验证过**（iTalent 月报 + Meego 工时看板）。三处关键事实：
+  1. **月报不是 `<table>`，是 `fixedDataTable` 的 div 网格**。取值靠「表头列序号 → 数据行同列格子」，
+     所以 `attendanceLookup` 里有一条专门的 grid 路径；用 `<th>/<td>` 的老逻辑在这页上永远找不到。
+  2. **月报的表是异步渲染的**（页面 `readyState=complete` 时往往还是空壳），因此 `read` / `fill`
+     会轮询等它出现，最长 `attendance.renderWaitMs`（默认 30000）。只抓一次会稳定报「没找到」。
+  3. **同一页有三列都含「出勤天数」**：`本月实际出勤天数` / `月报能量日应出勤天数` / `能量日实际出勤天数`。
+     默认 `attendance.label` 取**精确的那一列**（`本月实际出勤天数`），避免歧义。
+- **月报里没有当前月那一行。** 月报只列已结束的月份（实测当前月 2026-10 时，最新是 2026-09）。
+  默认行为是**回退到最新可得的那一行**，并在结果里用 `matchedMonth` 明确标出用的是哪个月。
+  `matchedRow` 为 `current-month` 表示正好命中当前月，为 `first-candidate` 表示是回退结果。
+- **出勤天数是小数，且等于「小时 ÷ 8」**（实测 21.875 / 19.5 / 23 / 13 / 12.75，全是 0.125 的整数倍）。
+  所以 `attendance.decimals` 默认给到 **4**：若按早期的 1 位小数，21.875 会被舍成 21.9，
+  换算成 175.2 小时而不是正确的 **175**。
+- **Meego 写入要跨 frame，而且必须先点开弹窗。** 真实结构是：
+  看板 frame 里点【工时登记】→ 下拉里点【单项登记】→ 弹窗出现在**另一个** `page-web` 目标里，
+  里面有 `#basic_actWorkHour`。所以 `fill --commit` 是「真实鼠标点击 + 在弹窗 frame 里按原生 setter 填值」。
+  合成 `el.click()` 对 antd 无效（实测点了没反应），必须走 CDP `Input.dispatchMouseEvent`。
+- **`--commit` 只填不提交。** 弹窗会留在页面上（标签页不关），由你核对后自己点「提交审批」。
+  只有显式 `--submit` 或 `meego.submit: true` 才会去点提交按钮。
+- **批量登记（按天分摊）已实现**，用法是 `--mode batch`（或 `meego.mode: "batch"`）。它做这些事：
+  点【工时登记】→ 点【批量登记】→ 选工作项类型 → 搜索并选中工作项实例 → 切到 `上个月`
+  → 用 `attendance` 读到的出勤天数 × 8 得到总工时，**按工作日 8 小时逐格分摊**（余数落在最后一个工作日）
+  → 逐格「点格子 → 核对浮层里的登记日期 → 填 `#realActWorkHour` → 失焦确认」，每格填完都回读 `合计` 校验。
+  结果里的 `batch.cells` 会带每格的 `cellBefore` / `cellAfter`，`filledCount` / `filledHours` 是汇总。
+- **批量那条路的两个坑**（都已在代码里处理，出问题时看 `steps` 里的报错原文）：
+  1. 批量弹窗由**另一个** `page-web` 目标渲染，而且 antd 会在外层 frame 里留一份**隐藏的弹窗 DOM**。
+     所以定位弹窗的判据是「能找到**可见**的『选择工作项类型』下拉」，不是「哪个 frame 的文字里有这几个字」。
+  2. 首屏还在加载时按钮会被 `ant-spin` 遮罩盖住，且布局会漂移（算好的坐标转眼就偏）。
+     所以点击是「轮询找到 → 命中测试确认没被遮罩盖住 → 点 → 校验菜单是否弹出 → 没弹出就重试整轮」。
+- **批量登记的行来自你本人的排期数据**（【添加已有工作实例/节点/任务】）。没有排期时表体是「暂无数据」，
+  这时 `batch.rows` 为空、`fatal` 会说明原因 —— 不是你配错了，是确实没有可填的对象。
 - **iTalent 是低代码框架**（URL 里带 `shadow_context`），有可能使用 shadow DOM。
   `probe` 导出的 HTML 已经包含 shadow root 内容，便于排查。
 - **Meego 插件页在跨域 iframe 里**：外层 `project.feishu.cn`，表单在
