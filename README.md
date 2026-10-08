@@ -355,6 +355,7 @@ copy config.default.json E:\DSH-chajain\.dsh-workhours\config.json
 | `attendance.frameUrlIncludes` | 帧偏好：URL 含该片段的 frame **先试**，默认 `italent.cn` |
 | `attendance.frameWaitMs` | 等该帧出现的最长时间，默认 15000 |
 | `attendance.renderWaitMs` | 轮询等异步表格渲染的最长时间，默认 30000 |
+| `attendance.reuseTab` | 优先复用你已经打开的月报标签页，默认 `true`。**强烈建议保持 true**，理由见 §8 |
 | `rule.hoursPerDay` | 每天工时，默认 8 |
 | `meego.registerButtonText` | 看板上打开登记入口的按钮文字，默认 `工时登记` |
 | `meego.registerModeText` | 下拉里的登记方式，默认 `单项登记` |
@@ -431,6 +432,15 @@ node E:\DSH-chajain\tools\verify-sidebar.mjs <带 token 的 URL> <截图目录>
 
 ## 8. 已知限制（请务必读）
 
+- **月报页面要「你已经打开着」才读得到 —— 这是最重要的一条。**
+  iTalent 的月报正文装在 `iTalentFrame` widget iframe 里，而这个 iframe
+  **只在应用自己走完路由跳转之后才有内容**。实测：
+  - 由 driver 新开标签页打开的月报地址（哪怕带上会话参数），widget iframe 里是**空的**
+    （0 个字符 / 3 个节点），放几分钟也不会变；带 `quark_s` 的完整 URL 打开还会被弹回首页；
+  - 你自己点开的「我的假勤 → 我的月报」标签页里才有正文。
+  所以 `read` / `fill` 默认 **`attendance.reuseTab: true`**：先找这个标签页并**复用它**（不导航、读完不关），
+  找不到才自己新开。结果里的 `attendanceTab.reused` 会告诉你是哪种情况。
+  **用之前请先在浏览器里把「我的假勤 → 我的月报」点开、让它渲染出来。**
 - **选择器已经在真实页面上验证过**（iTalent 月报 + Meego 工时看板）。三处关键事实：
   1. **月报不是 `<table>`，是 `fixedDataTable` 的 div 网格**。取值靠「表头列序号 → 数据行同列格子」，
      所以 `attendanceLookup` 里有一条专门的 grid 路径；用 `<th>/<td>` 的老逻辑在这页上永远找不到。
@@ -438,6 +448,8 @@ node E:\DSH-chajain\tools\verify-sidebar.mjs <带 token 的 URL> <截图目录>
      会轮询等它出现，最长 `attendance.renderWaitMs`（默认 30000）。只抓一次会稳定报「没找到」。
   3. **同一页有三列都含「出勤天数」**：`本月实际出勤天数` / `月报能量日应出勤天数` / `能量日实际出勤天数`。
      默认 `attendance.label` 取**精确的那一列**（`本月实际出勤天数`），避免歧义。
+- 读不到时，结果里的 `frames[].attendanceTexts` 会列出**每个 frame 里所有含「出勤天数」的表头文字**，
+  `matchedBy` 说明命中的是精确匹配还是 includes —— 先看这两个再决定要不要动配置。
 - **月报里没有当前月那一行。** 月报只列已结束的月份（实测当前月 2026-10 时，最新是 2026-09）。
   默认行为是**回退到最新可得的那一行**，并在结果里用 `matchedMonth` 明确标出用的是哪个月。
   `matchedRow` 为 `current-month` 表示正好命中当前月，为 `first-candidate` 表示是回退结果。
