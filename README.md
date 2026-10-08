@@ -316,7 +316,9 @@ node lib\driver.mjs fill  --workspace E:\DSH-chajain --days 21.5 --commit  # 跳
 
 ## 6. 配置
 
-复制一份到工作区再改（查找顺序：`--config` → `<workspace>/.dsh-workhours/config.json` → `<workspace>/config.json`）：
+复制一份到工作区再改（查找顺序：`--config` → `<workspace>/.dsh-workhours/config.json` → `<workspace>/config.json`）。
+其中 `meego.url` **必须**换成你自己的看板地址 —— 仓库里的默认值只是 `REPLACE-ME` 占位符；
+真实地址只写在工作区的私有配置里，不要提交进仓库：
 
 ```powershell
 copy config.default.json E:\DSH-chajain\.dsh-workhours\config.json

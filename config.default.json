@@ -1,5 +1,5 @@
 {
-  "_comment": "复制成 config.json 后按需修改。选择器留 null 时启用内置的「按可见文字就近定位」启发式。frameUrlIncludes 只调整 frame 尝试顺序（命中的先试），写错也不会直接失败。",
+  "_comment": "复制成 config.json 后按需修改。meego.url 默认是占位符，必须换成你自己的看板地址（见 README §6）。选择器留 null 时启用内置的「按可见文字就近定位」启发式。frameUrlIncludes 只调整 frame 尝试顺序（命中的先试），写错也不会直接失败。",
 
   "attendance": {
     "url": "https://www.italent.cn/portal/convoy/attendance?metaObjName=Attendance.Monthly&listViewName=Attendance.SingleObjectListView.MyMonthlyTableList&_userSpecialType=1&_pageType=cloud",
@@ -13,7 +13,7 @@
   },
 
   "meego": {
-    "url": "https://project.feishu.cn/REPLACE-ME/meegoPlg/MII_REPLACE-ME_board_fikkli?lang=zh-CN",
+    "url": "https://project.feishu.cn/REPLACE-ME/meegoPlg/MII_REPLACE-ME?lang=zh-CN",
     "label": "工时",
     "inputSelector": null,
     "submitSelector": null,
