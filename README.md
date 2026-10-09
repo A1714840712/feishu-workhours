@@ -326,12 +326,19 @@ node lib\driver.mjs fill  --workspace E:\DSH-chajain --days 21.5 --commit  # 跳
 node lib\driver.mjs fill  --workspace E:\DSH-chajain --mode batch          # 批量：预览分摊方案
 node lib\driver.mjs fill  --workspace E:\DSH-chajain --mode batch --commit # 批量：按工作日逐格填（不提交）
 node lib\driver.mjs fill  --workspace E:\DSH-chajain --mode batch --days 2 --commit  # 只填 2 格，用来试水
+node lib\driver.mjs read  --workspace E:\DSH-chajain --daily              # 顺带读日报，看每天的工时
+node lib\driver.mjs fill  --workspace E:\DSH-chajain --mode batch --daily # 批量：按日报逐日填（最准）
 ```
 
 `--commit` 之后弹窗会留在页面上、标签页不关，你核对完自己点「提交审批」即可。
 
 > **建议先小步试水**：`--mode batch --days 2 --commit` 只填两格，确认格子和日期都对上，
 > 再跑整月（不加 `--days`，工时会按 `attendance` 读到的出勤天数 × 8 算）。
+>
+> **加 `--daily` 更准**：它会点开月报里的月份、读「日报」逐日明细，按每天的
+> **`实际出勤工时（研发）`** 逐格填（常规班 8 → 8h、半天 7.5 → 7.5h、节假日/公休日不填）。
+> 好处是**不会把工时填到节假日上、也不会漏掉调休上班的周末**；代价是这一趟要滚动虚拟表格，
+> 大约 1~3 分钟。逐日相加必须等于月报口径，对不上就自动退回按工作日平摊（宁可整齐，也不漏填）。
 
 ---
 
@@ -356,6 +363,7 @@ copy config.default.json E:\DSH-chajain\.dsh-workhours\config.json
 | `attendance.frameWaitMs` | 等该帧出现的最长时间，默认 15000 |
 | `attendance.renderWaitMs` | 轮询等异步表格渲染的最长时间，默认 30000 |
 | `attendance.reuseTab` | 优先复用你已经打开的月报标签页，默认 `true`。**强烈建议保持 true**，理由见 §8 |
+| `attendance.dailyDetail` | 读「日报」拿每天的工时，默认 `false`（也可用 `--daily` 临时开）。**按天填准确得多**，理由见 §8 |
 | `rule.hoursPerDay` | 每天工时，默认 8 |
 | `meego.registerButtonText` | 看板上打开登记入口的按钮文字，默认 `工时登记` |
 | `meego.registerModeText` | 下拉里的登记方式，默认 `单项登记` |
@@ -466,6 +474,8 @@ node E:\DSH-chajain\tools\verify-sidebar.mjs <带 token 的 URL> <截图目录>
   点【工时登记】→ 点【批量登记】→ 选工作项类型 → 搜索并选中工作项实例 → 切到 `上个月`
   → 用 `attendance` 读到的出勤天数 × 8 得到总工时，**按工作日 8 小时逐格分摊**（余数落在最后一个工作日）
   → 逐格「点格子 → 核对浮层里的登记日期 → 填 `#realActWorkHour` → 失焦确认」，每格填完都回读 `合计` 校验。
+  加了 `--daily` 就改成**按日报逐日填**：每天的「实际出勤工时」直接落到对应的日期格（余数与逐日明细见下），
+  结果里 `planSource` 为 `daily`、并带 `planSum` / `planDrift` 供核对。
   结果里的 `batch.cells` 会带每格的 `cellBefore` / `cellAfter`，`filledCount` / `filledHours` 是汇总。
 - **批量那条路的两个坑**（都已在代码里处理，出问题时看 `steps` 里的报错原文）：
   1. 批量弹窗由**另一个** `page-web` 目标渲染，而且 antd 会在外层 frame 里留一份**隐藏的弹窗 DOM**。
@@ -485,6 +495,24 @@ node E:\DSH-chajain\tools\verify-sidebar.mjs <带 token 的 URL> <截图目录>
   即使显式打开，也只在确实找到按钮时才点，且结果会写明点的是哪个按钮。
 - **页面改版会让启发式失效。** 失效表现是 `read` 报「没找到出勤天数」或 `fill` 报
   「没能定位到工时输入框」——此时看结果里的 `probes` / `interactables`（或重跑 `probe`）更新选择器。
+- **月报只给整月一个数，日报才是逐日的 —— 按天填必须走日报。**
+  月报的「本月实际出勤天数」是全天数（如 21.875），拿它按工作日平摊会把工时填到**节假日**上
+  （实测 2026-09 会把 7h 填到 09-25 节假日），又漏掉**调休上班的周末**（09-20 周日上了班）。
+  加 `--daily` 后按天填就对得上。日报里有一列 **`实际出勤工时（研发）`**，是 iTalent 自己算好的
+  「这天该算多少工时」（常规班 8、半天 7.5、节假日/公休日 0），直接用这一列，别再自己乘 8。
+- **日报那张表是虚拟滚动，读它有三个坑**（都已在 `readDailyDetail` 里处理，改代码时别踩回去）：
+  1. **只有滚轮能滚**：表体 `scrollHeight === clientHeight`、没有滚动条元素、键盘（End/PageDown）无效，
+     只能发 `Input.dispatchMouseEvent` 的 `mouseWheel`；而页面是**阻塞式加载**，一发滚轮要等 20~30 秒才返回，
+     所以这里用的是 35 秒超时（"超时"不等于失败）。
+  2. **滚轮坐标每轮都要重算**：固定坐标在表格跳页之后会落到表格外面，滚轮就再也滚不动了。
+  3. **不能用不完整的行覆盖完整的行**：重渲染时某一行可能只画出了「考勤日期」一格（其余全 null），
+     直接覆盖会把已经读到的 8h 抹成 0（实测整月因此少算 8h）。合并时按「信息更全」择优。
+  另外取值**必须按表头列名**（用列边界把格子归到列上），不能按「第几个数字」——
+  在「高级筛选」里增删字段会改变列顺序，按位置取值会整列串掉。
+- **日报视图会记住滚动位置**：从月报再点进同一个月份时，表格停在上次的位置，所以并不是每次都从月初开始。
+  同理，页面可能停在上一次的日报视图里，`readDailyDetail` 会先点「返回」回到月报汇总再点月份。
+- **日报读不全时绝不硬填**：逐日相加必须等于月报口径，差超过 0.01h 就判定「没读全」，
+  自动退回按工作日平摊，并在结果里给出 `dailyRejected`（`sum` / `expected` / `drift`）。
 - **首次需要在独立配置目录的 Chrome 里人工登录一次**（见 §3.1）。登录态之后长期有效；
   插件本身不接触、不存储账号密码。
 - 如果 `browser.profileDir` 目录下的 Chrome 已经在运行（但没有开调试端口），

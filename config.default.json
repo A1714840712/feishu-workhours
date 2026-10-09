@@ -10,7 +10,8 @@
     "frameUrlIncludes": "italent.cn",
     "frameWaitMs": 15000,
     "renderWaitMs": 30000,
-    "reuseTab": true
+    "reuseTab": true,
+    "dailyDetail": false
   },
   "meego": {
     "url": "https://project.feishu.cn/REPLACE-ME/meegoPlg/MII_REPLACE-ME?lang=zh-CN",
