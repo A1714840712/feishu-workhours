@@ -78,14 +78,16 @@ function runDriver(argv, { timeoutMs = 900000 } = {}) {
  * @param options.commit - 仅 fill：真正写入 Meego。
  * @param options.submit - 仅 fill：写完是否点提交按钮。
  * @param options.days - 仅 fill：跳过读取，直接用这个出勤天数。
+ * @param options.daily - read/fill：额外读「日报」逐日明细（每天的实际出勤工时）。
  * @returns `{ ok, summary, detail? }`。
  */
-async function runAction(action, { workspace, commit = false, submit = false, days, mode } = {}) {
+async function runAction(action, { workspace, commit = false, submit = false, days, mode, daily = false } = {}) {
   const argv = [action, '--workspace', workspace];
   if (action === 'probe') {
     // 插件里没有终端可等，直接抓当前已登录的页面
     argv.push('--no-wait');
   }
+  if (daily === true && (action === 'read' || action === 'fill')) argv.push('--daily');
   if (action === 'fill') {
     if (commit === true) argv.push('--commit');
     if (submit === true) argv.push('--submit');
@@ -115,7 +117,7 @@ async function runAction(action, { workspace, commit = false, submit = false, da
 const COMMAND_ACTIONS = ['probe', 'read', 'fill'];
 
 /**
- * 解析 `/workhours` 的 rawInput：`probe | read | fill [commit] [submit] [days=21.5]`。
+ * 解析 `/workhours` 的 rawInput：`probe | read | fill [commit] [submit] [days=21.5] [mode=batch] [daily]`。
  * 什么都不传时按 `read` 处理（最安全：不写字）。
  * @param rawInput - 命令名之后的全部输入。
  * @returns 解析出的选项，或 `{ error }`。
@@ -127,15 +129,20 @@ export function parseCommandInput(rawInput) {
     return { error: `未知动作 "${action}"，可用：${COMMAND_ACTIONS.join(' | ')}` };
   }
   let days;
+  let mode;
   for (const token of tokens.slice(1)) {
     const matched = /^days=(\d+(?:\.\d+)?)$/.exec(token);
     if (matched) days = Number(matched[1]);
+    const m = /^mode=(single|batch)$/.exec(token);
+    if (m) mode = m[1];
   }
   return {
     action,
     commit: tokens.includes('commit'),
     submit: tokens.includes('submit'),
+    daily: tokens.includes('daily'),
     days,
+    mode,
   };
 }
 
@@ -147,7 +154,7 @@ function registerCommand(ctx) {
   ctx.commands.register({
     name: 'workhours',
     description: '飞书项目工时填报：读 iTalent 出勤天数，按 ×8 写入 Meego 工时页',
-    input: { hint: 'probe | read | fill [commit] [submit] [days=21.5]' },
+    input: { hint: 'probe | read | fill [commit] [submit] [days=21.5] [mode=batch] [daily]' },
     async handler({ agent, rawInput }) {
       const parsed = parseCommandInput(rawInput);
       if (parsed.error !== undefined) return { kind: 'error', text: parsed.error };
@@ -158,12 +165,29 @@ function registerCommand(ctx) {
         commit: parsed.commit,
         submit: parsed.submit,
         days: parsed.days,
+        mode: parsed.mode,
+        daily: parsed.daily,
       });
       return result.ok
         ? { kind: 'success', text: result.summary }
         : { kind: 'error', text: result.summary };
     },
   });
+}
+
+/** 把日报逐日明细压成几行（`--daily` 才有）。 */
+function formatDaily(r) {
+  const d = r && r.daily;
+  if (!d) return '';
+  if (d.ok === false) return `\n（日报逐日没读成：${d.error}）`;
+  const per = d.perDayHours || {};
+  const dates = Object.keys(per).sort();
+  if (dates.length === 0) return '';
+  const sum = Math.round(dates.reduce((a, k) => a + per[k], 0) * 100) / 100;
+  const head = `\n日报逐日：${d.days.length} 天（${d.days[0].date}~${d.days[d.days.length - 1].date}）`
+    + `，取值列「${d.hoursColumn || `${r.hoursPerDay}h×天数`}」，逐日合计 ${sum}h`
+    + `${Math.abs(sum - r.hours) > 0.01 ? `（与月报口径 ${r.hours}h 差 ${Math.round((sum - r.hours) * 100) / 100}h，不会用于填报）` : '（与月报口径一致）'}`;
+  return `${head}\n  ${dates.map((k) => `${k.slice(5)} ${per[k]}h`).join('，')}`;
 }
 
 /** 把失败时的「含该标签的元素」压成几行，cssPath 可直接抄进配置。 */
@@ -229,12 +253,19 @@ export function summarize(action, r) {
 
   if (action === 'read') {
     if (!r.ok) return `没能读到「出勤天数」。${r.hint || ''}${formatProbes(r.probes)}${frameNote(r)}`;
-    return `出勤天数 = ${r.days} 天（来源 ${r.source}，${r.matchedRow}）\n→ 工时 = ${r.days} × ${r.hoursPerDay} = ${r.hours} 小时${frameNote(r)}`;
+    const base = `出勤天数 = ${r.days} 天（来源 ${r.source}，${r.matchedRow}）\n→ 工时 = ${r.days} × ${r.hoursPerDay} = ${r.hours} 小时${frameNote(r)}`;
+    return base + formatDaily(r);
   }
 
   // action === 'fill'
   if (r.mode === 'preview') {
-    return `【预览，未写入任何内容】出勤 ${r.days} 天 × ${r.hoursPerDay} = ${r.hours} 小时\n确认后把 commit 设为 true 才会真正写入。`;
+    const plan = r.wouldWrite && r.wouldWrite.plan;
+    const planNote = plan
+      ? `\n按日报逐日填 ${plan.length} 格，合计 ${plan.reduce((a, x) => a + x.hours, 0)}h：\n  `
+        + plan.map((x) => `${x.date.slice(5)} ${x.hours}h`).join('，')
+      : '';
+    return `【预览，未写入任何内容】出勤 ${r.days} 天 × ${r.hoursPerDay} = ${r.hours} 小时${planNote}`
+      + `\n确认后把 commit 设为 true 才会真正写入。`;
   }
   if (!r.ok) {
     return `写入失败：${r.hint || r.error || '未知原因'}${formatInteractables(r.interactables)}${frameNote(r)}`;
@@ -286,6 +317,12 @@ export function apply(ctx) {
         enum: ['single', 'batch'],
         description: '仅 fill 用。single=单项登记（一次一格）；batch=批量登记，把 出勤天数×8 按工作日逐格填。默认用配置里的 meego.mode。',
       },
+      daily: {
+        type: 'boolean',
+        description: '仅 read/fill 用。true 时额外读「日报」逐日明细，按每天的实际出勤工时逐格填'
+          + '（不会把工时填到节假日上、也不会漏掉调休上班的周末）。默认 false，用配置里的 attendance.dailyDetail。'
+          + '这一趟要滚动虚拟表格，约 1~3 分钟。',
+      },
     },
     output: {
       schema: {
@@ -311,6 +348,7 @@ export function apply(ctx) {
         submit: args.submit === true,
         days: typeof args.days === 'number' ? args.days : undefined,
         mode: args.mode === 'batch' ? 'batch' : (args.mode === 'single' ? 'single' : undefined),
+        daily: args.daily === true,
       });
       return {
         ok: result.ok,

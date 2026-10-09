@@ -397,8 +397,35 @@ export function defineTool(options) {
   check('无输入默认 read', mod.parseCommandInput('').action === 'read', mod.parseCommandInput(''));
   check('解析 commit/submit/days',
     JSON.stringify(mod.parseCommandInput(' fill commit submit days=21.5 ')) ===
-      JSON.stringify({ action: 'fill', commit: true, submit: true, days: 21.5 }),
+      JSON.stringify({ action: 'fill', commit: true, submit: true, daily: false, days: 21.5, mode: undefined }),
     mod.parseCommandInput(' fill commit submit days=21.5 '));
+  check('解析 mode=batch 与 daily',
+    JSON.stringify(mod.parseCommandInput(' fill mode=batch daily ')) ===
+      JSON.stringify({ action: 'fill', commit: false, submit: false, daily: true, days: undefined, mode: 'batch' }),
+    mod.parseCommandInput(' fill mode=batch daily '));
+
+  // buildBatchPlan 的两条路：日报逐日（perDayMap）与工作日平摊。
+  // 逐日那条必须「只填有出勤的天」并保住小数（半天 7.5h），这是最容易写错的地方。
+  const driver = await import(pathToFileURL(path.join(ROOT, 'lib', 'driver.mjs')).href);
+  const sept = Array.from({ length: 30 }, (_, i) => `2026-09-${String(i + 1).padStart(2, '0')}`);
+  const dailyPlan = driver.buildBatchPlan(175, sept, true, 8, {
+    '2026-09-07': 7.5, '2026-09-25': 0, '2026-09-30': 8, '2026-09-01': 8,
+  });
+  check('逐日计划：跳过 0 小时的天',
+    dailyPlan.length === 3 && !dailyPlan.some((p) => p.date === '2026-09-25'), dailyPlan);
+  check('逐日计划：按日期有序且保住 7.5h',
+    JSON.stringify(dailyPlan.map((p) => p.date)) === JSON.stringify(['2026-09-01', '2026-09-07', '2026-09-30'])
+      && dailyPlan[1].hours === 7.5, dailyPlan);
+  check('逐日计划：标记来源和合计',
+    dailyPlan.every((p) => p.planSource === 'daily' && p.planSum === 23.5), dailyPlan[0]);
+  check('逐日计划：范围外的日期不填（弹窗里没有那格）',
+    driver.buildBatchPlan(8, ['2026-09-01'], true, 8, { '2026-09-01': 8, '2026-09-02': 8 }).length === 1,
+    driver.buildBatchPlan(8, ['2026-09-01'], true, 8, { '2026-09-01': 8, '2026-09-02': 8 }));
+  const spread = driver.buildBatchPlan(175, sept, true, 8, null);
+  check('平摊计划：22 个工作日，合计 175h',
+    spread.length === 22 && spread.every((p) => p.planSource === 'spread')
+      && Math.round(spread.reduce((a, p) => a + p.hours, 0) * 100) / 100 === 175
+      && spread[spread.length - 1].hours === 7, spread);
   check('未知动作被拒', typeof mod.parseCommandInput('bogus').error === 'string', mod.parseCommandInput('bogus'));
 
   // 命令 handler 的接线：非法动作必须在启动 driver 之前就被挡下（这里不会 spawn node）。

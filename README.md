@@ -407,7 +407,7 @@ copy config.default.json E:\DSH-chajain\.dsh-workhours\config.json
 node test\run-tests.mjs
 ```
 
-覆盖（**99 项，全部通过**）：
+覆盖（**105 项，全部通过**）：
 
 - 浏览器启动 / CDP / 跨 frame 提取 / 截图 / 结构 JSON 与 HTML 落盘
 - 精确匹配优先（「出勤天数」不被「应出勤天数」抢走）、当前月份行选取、小数天数、`×8` 换算
